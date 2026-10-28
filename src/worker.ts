@@ -99,7 +99,11 @@ export default {
     const url = new URL(req.url);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     if (req.method !== "GET") return json({ error: "method not allowed" }, 405, { Allow: "GET" });
-    if (accessEnabled(env) && !(await verifyAccess(req, env))) return json({ error: "unauthorized" }, 401);
+    // Fail closed: without Access configured the API answers nobody, unless PUBLIC_API is set on purpose.
+    if (env.PUBLIC_API !== "true") {
+      if (!accessEnabled(env)) return json({ error: "access not configured" }, 503);
+      if (!(await verifyAccess(req, env))) return json({ error: "unauthorized" }, 401);
+    }
 
     try {
       if (url.pathname === "/api/news") {
@@ -108,8 +112,13 @@ export default {
         const cacheKey = new Request(`${url.origin}/api/news?hours=${hours}`);
         const cache = caches.default;
         const hit = await cache.match(cacheKey);
-        if (hit) return hit;
-        const res = json(await newsPayload(env, hours), 200, { "Cache-Control": `private, max-age=${API_CACHE_SECONDS}` });
+        if (hit) {
+          // The edge copy carries s-maxage; browsers and intermediaries must never store it.
+          const res = new Response(hit.body, hit);
+          res.headers.set("Cache-Control", "private, no-store");
+          return res;
+        }
+        const res = json(await newsPayload(env, hours), 200, { "Cache-Control": "private, no-store" });
         const toCache = new Response(res.clone().body, res);
         toCache.headers.set("Cache-Control", `s-maxage=${API_CACHE_SECONDS}`);
         ctx.waitUntil(cache.put(cacheKey, toCache));

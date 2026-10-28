@@ -1,6 +1,7 @@
 "use strict";
 // Shell offline + última respuesta de la API. Network-first para la API, cache-first para el shell.
-const VERSION = "v1";
+const VERSION = "v2";
+const OFFLINE_MAX_AGE_MS = 48 * 3600 * 1000; // older offline copies are not shown
 const SHELL = ["/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest", "/icons/icon.svg", "/icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {
@@ -26,10 +27,18 @@ self.addEventListener("fetch", (e) => {
           if (res.ok && !res.redirected) {
             const copy = res.clone();
             caches.open(`api-${VERSION}`).then((c) => c.put(e.request, copy));
+          } else if (res.status === 401 || res.status === 403 || res.redirected) {
+            // Session gone: drop the offline copy so news is not readable without login.
+            caches.delete(`api-${VERSION}`);
           }
           return res;
         })
-        .catch(() => caches.match(e.request).then((r) => r || Response.error())),
+        .catch(() =>
+          caches.match(e.request).then((r) => {
+            const age = r ? Date.now() - Date.parse(r.headers.get("Date") || "") : Infinity;
+            return r && age < OFFLINE_MAX_AGE_MS ? r : Response.error();
+          }),
+        ),
     );
     return;
   }

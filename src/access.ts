@@ -41,7 +41,10 @@ export async function verifyAccess(req: Request, env: Env): Promise<boolean> {
     if (!ok) return false;
     const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
     const now = Date.now() / 1000;
-    return aud.includes(env.ACCESS_AUD) && payload.exp > now && payload.iss === `https://${env.ACCESS_TEAM_DOMAIN}`;
+    const SKEW = 60; // seconds of clock drift tolerated
+    if (typeof payload.exp !== "number" || payload.exp + SKEW < now) return false;
+    if (typeof payload.nbf === "number" && payload.nbf - SKEW > now) return false;
+    return aud.includes(env.ACCESS_AUD) && payload.iss === `https://${env.ACCESS_TEAM_DOMAIN}`;
   } catch {
     return false;
   }

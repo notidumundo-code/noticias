@@ -75,15 +75,18 @@ async function load() {
   try {
     const res = await fetch(`/api/news?hours=${state.hours}`, { credentials: "same-origin" });
     if (res.status === 401 || res.redirected) { location.reload(); return; }
+    if (res.status === 503) throw new Error("La app todavía no tiene configurado el inicio de sesión.");
     if (!res.ok) throw new Error(String(res.status));
     state.data = await res.json();
     $("#updated").textContent = `Actualizado ${new Date(state.data.generated_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
-  } catch {
+  } catch (err) {
     $("#updated").textContent = state.data ? "Sin conexión: mostrando lo último" : "No se pudo cargar";
     if (!state.data) {
       const p = document.createElement("p");
       p.className = "error";
-      p.textContent = "No se pudieron cargar las noticias. Probá de nuevo en un rato.";
+      p.textContent = err instanceof Error && err.message.startsWith("La app")
+        ? err.message
+        : "No se pudieron cargar las noticias. Probá de nuevo en un rato.";
       $("#list").replaceChildren(p);
       return;
     }

@@ -20,10 +20,13 @@ PWA personal (web + pantalla de inicio del iPhone) con las noticias **económica
    - `SUPABASE_SECRET_KEY`
 3. Los *Cron Triggers* (`*/5 * * * *`) se crean desde `wrangler.jsonc`.
 
-### 3. Login (Cloudflare Access)
+### 3. Login (Cloudflare Access) — obligatorio
+Hasta completar este paso la API responde `503` a todos: la app no muestra noticias sin login configurado.
+
 1. **Zero Trust → Access → Applications → Add → Self-hosted**: dominio del Worker (`noticias-globales.<tu-subdominio>.workers.dev` o tu dominio). Política: *Allow* → *Emails* → tu email.
 2. Copiá el **Application Audience (AUD) Tag** y tu *team domain* (`<equipo>.cloudflareaccess.com`).
 3. Cargalos como variables del Worker: `ACCESS_TEAM_DOMAIN` y `ACCESS_AUD`. Desde ahí la API rechaza cualquier pedido sin login, incluso si alguien saltea Access.
+4. (Solo desarrollo local) `PUBLIC_API=true` en `.dev.vars` desactiva el chequeo. No lo uses en producción.
 
 ### 4. Comprobar
 - `https://<tu-url>/api/status` muestra cada fuente con su último error y cantidad de notas (las primeras ~25 minutos se van llenando).

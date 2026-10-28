@@ -35,9 +35,11 @@ export interface Env {
   SUPABASE_URL: string;
   /** Supabase secret (or legacy service_role) key. Never sent to the browser. */
   SUPABASE_SECRET_KEY: string;
-  /** Optional: enforce Cloudflare Access JWT on /api/* when both are set. */
+  /** Cloudflare Access settings. /api/* refuses every request until both are set. */
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
+  /** Explicit opt-out ("true") to serve the API without Access, e.g. for local dev. */
+  PUBLIC_API?: string;
   /** How many feeds each cron run refreshes (keeps CPU per run low). */
   FEEDS_PER_RUN?: string;
 }
