@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Noticias Globales</title>
+  <meta name="description" content="Noticias económicas y políticas del día: Argentina, la región y el mundo.">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Noticias">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="title-row">
+      <h1>Noticias</h1>
+      <button id="refresh" class="icon-btn" aria-label="Actualizar">↻</button>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-cat="economia" aria-selected="true">Economía</button>
+      <button role="tab" data-cat="politica" aria-selected="false">Política</button>
+    </nav>
+    <nav class="regions" aria-label="Región">
+      <button data-region="argentina" aria-pressed="true">Argentina</button>
+      <button data-region="region" aria-pressed="false">Región</button>
+      <button data-region="mundo" aria-pressed="false">Mundo</button>
+    </nav>
+  </header>
+
+  <main id="list" aria-live="polite"></main>
+
+  <footer class="foot">
+    <span id="updated">Cargando…</span>
+    <select id="hours" aria-label="Período">
+      <option value="24">Últimas 24 h</option>
+      <option value="48">48 h</option>
+      <option value="72">3 días</option>
+      <option value="168">7 días</option>
+    </select>
+  </footer>
+
+  <template id="story-tpl">
+    <article class="story">
+      <a class="headline" target="_blank" rel="noopener noreferrer"></a>
+      <p class="summary"></p>
+      <div class="meta"><span class="when"></span><span class="sources"></span></div>
+    </article>
+  </template>
+</body>
+</html>

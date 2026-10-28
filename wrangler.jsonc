@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "noticias-globales",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // /api/* goes to the Worker; everything else is served straight from assets.
+    "run_worker_first": ["/api/*"]
+  },
+  // Every 5 minutes; each run refreshes FEEDS_PER_RUN feeds, so every source
+  // is re-read roughly every 25 minutes with ~30 feeds.
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "vars": {
+    "FEEDS_PER_RUN": "6"
+    // Secrets (set with `wrangler secret put` or in the dashboard, never here):
+    //   SUPABASE_URL, SUPABASE_SECRET_KEY
+    // Optional, to enforce Cloudflare Access on /api/*:
+    //   ACCESS_TEAM_DOMAIN (e.g. "miequipo.cloudflareaccess.com"), ACCESS_AUD
+  }
+}

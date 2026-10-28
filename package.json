@@ -1,0 +1,20 @@
+{
+  "name": "noticias-globales",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PWA personal de noticias económicas y políticas: Argentina, región y mundo.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "icons": "node scripts/make-icons.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261028.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.155.0"
+  }
+}

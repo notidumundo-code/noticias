@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+.dev.vars
+.env*
+dist/
+vault/.obsidian/workspace*.json
+vault/.obsidian/cache
+.DS_Store
