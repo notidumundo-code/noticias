@@ -1,4 +1,4 @@
-import { authConfigured, clearCookies, currentUser, logout, normalizeEmail, passwordLogin } from "./auth";
+import { UpstreamError, authConfigured, clearCookies, currentUser, logout, normalizeEmail, passwordLogin } from "./auth";
 import { classify, rankStories } from "./classify";
 import { FEEDS } from "./feeds";
 import { normalizeDate, parseFeed } from "./rss";
@@ -183,6 +183,8 @@ export default {
       return json({ error: "not found" }, 404);
     } catch (err) {
       console.error(err);
+      // Config problems are reported with Supabase's status so they can be fixed without digging in logs.
+      if (err instanceof UpstreamError) return json({ error: "upstream error", supabase_status: err.status, supabase_error: err.hint }, 502);
       return json({ error: "upstream error" }, 502);
     }
   },

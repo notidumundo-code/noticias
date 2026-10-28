@@ -115,3 +115,14 @@ describe("login endpoints", () => {
     expect((await post("/api/auth/login", limited, { email: "yo@example.com", password: "pw" })).status).toBe(429);
   });
 });
+
+describe("server-side auth errors", () => {
+  it("reports Supabase config problems as 502 with Supabase's status, not as bad credentials", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ message: "Invalid API key" }, { status: 401 })));
+    const res = await call("/api/auth/login", env({ ALLOWED_EMAILS: "yo@example.com", AUTH_LIMITER: { limit: async () => ({ success: true }) } }), {
+      method: "POST", headers: { "Content-Type": "application/json", Origin: "https://app.test" }, body: JSON.stringify({ email: "x@example.com", password: "pw" }),
+    });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "upstream error", supabase_status: 401, supabase_error: "Invalid API key" });
+  });
+});

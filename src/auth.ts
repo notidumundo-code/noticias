@@ -8,6 +8,23 @@ const AT = "ng_at"; // access token, short-lived
 const RT = "ng_rt"; // refresh token, long-lived
 const REFRESH_MAX_AGE = 60 * 86_400;
 
+/** A Supabase failure that is a server problem (bad key, wrong URL, outage), not bad credentials. */
+export class UpstreamError extends Error {
+  constructor(readonly status: number, body: string) {
+    super(`Supabase auth ${status}`);
+    // Supabase's own short error text (e.g. "Invalid API key"); never contains our key.
+    let msg = "";
+    try {
+      const j = JSON.parse(body);
+      msg = String(j.error_code ?? j.msg ?? j.message ?? j.error ?? "");
+    } catch {
+      msg = body.startsWith("<") ? "html" : body;
+    }
+    this.hint = msg.slice(0, 80);
+  }
+  readonly hint: string;
+}
+
 export function allowedEmails(env: Env): Set<string> {
   return new Set((env.ALLOWED_EMAILS ?? "").split(/[,\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean));
 }
@@ -100,7 +117,7 @@ export async function passwordLogin(env: Env, e: string, password: string): Prom
     console.warn("login failed", JSON.stringify({ status: res.status, allowed, detail }));
     // 400 = bad credentials / unconfirmed email; anything else is a server-side problem
     // (wrong key, Supabase down) and must not look like a wrong password.
-    if (res.status !== 400) throw new Error(`Supabase auth ${res.status}`);
+    if (res.status !== 400) throw new UpstreamError(res.status, detail);
     return null;
   }
   if (!allowed) {
