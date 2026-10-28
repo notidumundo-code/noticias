@@ -7,9 +7,6 @@ import type { Env } from "./types";
 const AT = "ng_at"; // access token, short-lived
 const RT = "ng_rt"; // refresh token, long-lived
 const REFRESH_MAX_AGE = 60 * 86_400;
-const VERIFY_CACHE_MS = 5 * 60_000;
-
-const verified = new Map<string, { email: string; until: number }>();
 
 export function allowedEmails(env: Env): Set<string> {
   return new Set((env.ALLOWED_EMAILS ?? "").split(/[,\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean));
@@ -57,36 +54,11 @@ export function clearCookies(): string[] {
   return [cookie(AT, "", 0), cookie(RT, "", 0)];
 }
 
-/** Reads `exp` without verifying; only used to shorten the cache, never to trust a token. */
-function tokenExpiryMs(token: string): number {
-  try {
-    const p = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-    const exp = JSON.parse(atob(p.padEnd(Math.ceil(p.length / 4) * 4, "="))).exp;
-    return typeof exp === "number" ? exp * 1000 : 0;
-  } catch {
-    return 0;
-  }
-}
-
-async function tokenKey(token: string): Promise<string> {
-  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return btoa(String.fromCharCode(...new Uint8Array(d)));
-}
-
-/** Asks Supabase who owns the access token; caches positive answers briefly. */
+/** Asks Supabase who owns the access token. No local cache, so a revoked session stops working at once. */
 async function emailForToken(env: Env, token: string): Promise<string | null> {
-  const key = await tokenKey(token);
-  const hit = verified.get(key);
-  if (hit && hit.until > Date.now()) return hit.email;
   const res = await gotrue(env, "user", undefined, token);
   if (!res.ok) return null;
-  const email = ((await res.json()) as { email?: string }).email?.toLowerCase() ?? null;
-  if (email) {
-    if (verified.size > 500) verified.clear();
-    const until = Math.min(Date.now() + VERIFY_CACHE_MS, tokenExpiryMs(token));
-    if (until > Date.now()) verified.set(key, { email, until });
-  }
-  return email;
+  return ((await res.json()) as { email?: string }).email?.toLowerCase() ?? null;
 }
 
 /**
@@ -128,20 +100,25 @@ export async function passwordLogin(env: Env, e: string, password: string): Prom
 }
 
 /**
- * Revokes the session in Supabase (all of this user's refresh tokens). When only the
- * refresh token is left, it is exchanged first so it can be revoked too.
- * Returns false when revocation could not be confirmed.
+ * Revokes the session in Supabase (all of this user's refresh tokens). When the access
+ * token is missing or expired, the refresh token is exchanged first so it gets revoked too.
+ * Returns false when revocation could not be confirmed; the caller then keeps the cookies
+ * so a retry can still revoke.
  */
 export async function logout(req: Request, env: Env): Promise<boolean> {
-  let at = readCookie(req, AT);
+  const at = readCookie(req, AT);
   const rt = readCookie(req, RT);
-  if (at) verified.delete(await tokenKey(at));
-  if (!at && rt) {
-    const r = await gotrue(env, "token?grant_type=refresh_token", { refresh_token: rt });
-    if (r.ok) at = ((await r.json()) as Session).access_token;
-    else return r.status >= 400 && r.status < 500; // token already invalid: nothing left to revoke
+  if (at) {
+    const res = await gotrue(env, "logout?scope=global", {}, at);
+    if (res.ok) return true;
+    if (res.status !== 401 && res.status !== 403) return false; // 429, 5xx: unknown state
   }
-  if (!at) return true;
-  const res = await gotrue(env, "logout?scope=global", {}, at);
-  return res.ok || res.status === 401 || res.status === 403;
+  if (!rt) return true; // nothing left that could renew the session
+  const r = await gotrue(env, "token?grant_type=refresh_token", { refresh_token: rt });
+  // Supabase answers 400/401 for refresh tokens that are already revoked or invalid.
+  if (r.status === 400 || r.status === 401) return true;
+  if (!r.ok) return false;
+  const fresh = ((await r.json()) as Session).access_token;
+  const res = await gotrue(env, "logout?scope=global", {}, fresh);
+  return res.ok;
 }

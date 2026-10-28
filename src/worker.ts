@@ -41,9 +41,9 @@ async function handleAuth(req: Request, env: Env, ctx: ExecutionContext, path: s
   // CSRF: only same-origin pages may call the auth endpoints (cookies are SameSite=Strict too).
   if (req.headers.get("Origin") !== new URL(req.url).origin) return json({ error: "forbidden" }, 403);
   if (path === "/api/auth/logout") {
-    // Local cookies are cleared either way; the client is told if Supabase did not confirm.
+    // Cookies are cleared only once Supabase confirms; otherwise a retry still has them.
     const revoked = await logout(req, env);
-    return json({ ok: revoked }, revoked ? 200 : 502, {}, clearCookies());
+    return revoked ? json({ ok: true }, 200, {}, clearCookies()) : json({ error: "logout failed" }, 502);
   }
   // Without a rate limiter the code could be brute-forced: refuse to log anyone in.
   if (!env.AUTH_LIMITER) return json({ error: "login not configured" }, 503);
@@ -51,6 +51,8 @@ async function handleAuth(req: Request, env: Env, ctx: ExecutionContext, path: s
   const email = normalizeEmail(body.email);
   const ip = req.headers.get("CF-Connecting-IP") ?? "?";
   // Two budgets: per IP, and per account shared across all IPs.
+  // shortcut: Cloudflare counters are per location, so a distributed attacker gets one budget
+  // per location. Acceptable for a single-user app with a strong password.
   for (const key of [`${path}:ip:${ip}`, `${path}:acct:${email}`]) {
     if (!(await env.AUTH_LIMITER.limit({ key })).success) return json({ error: "too many attempts" }, 429);
   }

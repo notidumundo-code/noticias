@@ -88,10 +88,27 @@ describe("login endpoints", () => {
     expect(urls.some((u) => u.includes("/logout"))).toBe(true);
     expect(res.headers.getSetCookie().every((c) => c.includes("Max-Age=0"))).toBe(true);
   });
-  it("reports a failed revocation", async () => {
+  const logoutWith = (cookie: string) => call("/api/auth/logout", configured, { method: "POST", headers: { Origin: "https://app.test", Cookie: cookie } });
+  it("reports a failed revocation and keeps the cookies for a retry", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 500 })));
-    const res = await call("/api/auth/logout", configured, { method: "POST", headers: { Origin: "https://app.test", Cookie: "ng_at=tok" } });
+    const res = await logoutWith("ng_at=tok; ng_rt=r");
     expect(res.status).toBe(502);
+    expect(res.headers.getSetCookie()).toHaveLength(0);
+  });
+  it("does not treat a rate-limited refresh as revoked", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 429 })));
+    expect((await logoutWith("ng_rt=r")).status).toBe(502);
+  });
+  it("renews an expired access token to revoke a still-valid refresh token", async () => {
+    const f = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.includes("grant_type=refresh_token")) return Response.json({ access_token: "fresh", refresh_token: "r2", expires_in: 3600 });
+      const auth = (init.headers as Record<string, string>).Authorization;
+      return new Response(null, { status: auth === "Bearer fresh" ? 204 : 401 });
+    });
+    vi.stubGlobal("fetch", f);
+    const res = await logoutWith("ng_at=expired; ng_rt=r");
+    expect(res.status).toBe(200);
+    expect(f).toHaveBeenCalledTimes(3);
   });
   it("rate limits login attempts when the limiter says so", async () => {
     const limited = env({ ALLOWED_EMAILS: "yo@example.com", AUTH_LIMITER: { limit: async () => ({ success: false }) } });
