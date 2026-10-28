@@ -1,6 +1,6 @@
 import type { Env } from "./types";
 
-// Login with Supabase Auth (email + one-time code), proxied through the Worker.
+// Login with Supabase Auth (email + password), proxied through the Worker.
 // Tokens live only in HttpOnly cookies, so page scripts never see them, and the
 // browser never needs any Supabase key.
 
@@ -57,6 +57,17 @@ export function clearCookies(): string[] {
   return [cookie(AT, "", 0), cookie(RT, "", 0)];
 }
 
+/** Reads `exp` without verifying; only used to shorten the cache, never to trust a token. */
+function tokenExpiryMs(token: string): number {
+  try {
+    const p = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const exp = JSON.parse(atob(p.padEnd(Math.ceil(p.length / 4) * 4, "="))).exp;
+    return typeof exp === "number" ? exp * 1000 : 0;
+  } catch {
+    return 0;
+  }
+}
+
 async function tokenKey(token: string): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   return btoa(String.fromCharCode(...new Uint8Array(d)));
@@ -72,7 +83,8 @@ async function emailForToken(env: Env, token: string): Promise<string | null> {
   const email = ((await res.json()) as { email?: string }).email?.toLowerCase() ?? null;
   if (email) {
     if (verified.size > 500) verified.clear();
-    verified.set(key, { email, until: Date.now() + VERIFY_CACHE_MS });
+    const until = Math.min(Date.now() + VERIFY_CACHE_MS, tokenExpiryMs(token));
+    if (until > Date.now()) verified.set(key, { email, until });
   }
   return email;
 }
@@ -100,26 +112,36 @@ export async function currentUser(req: Request, env: Env): Promise<{ email: stri
 
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 
-/** Sends the one-time code, only to allowed emails. Same answer either way (no enumeration). */
-export async function startLogin(env: Env, email: string): Promise<void> {
-  const e = email.trim().toLowerCase();
-  if (!EMAIL_RE.test(e) || !allowedEmails(env).has(e)) return;
-  const res = await gotrue(env, "otp", { email: e, create_user: false });
-  if (!res.ok) console.error("otp", res.status, (await res.text()).slice(0, 200));
+/** Single normalization used by the limiter and by every auth step. */
+export function normalizeEmail(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim().toLowerCase() : "";
 }
 
-export async function verifyLogin(env: Env, email: string, code: string): Promise<string[] | null> {
-  const e = email.trim().toLowerCase();
-  const c = code.replace(/\s/g, "");
-  if (!EMAIL_RE.test(e) || !/^\d{6,10}$/.test(c) || !allowedEmails(env).has(e)) return null;
-  const res = await gotrue(env, "verify", { type: "email", email: e, token: c });
-  if (!res.ok) return null;
+export async function passwordLogin(env: Env, e: string, password: string): Promise<string[] | null> {
+  if (!EMAIL_RE.test(e) || password.length < 1 || password.length > 200) return null;
+  // Always ask Supabase (even for emails not on the list) so timing does not reveal the list.
+  const res = await gotrue(env, "token?grant_type=password", { email: e, password });
+  if (!res.ok || !allowedEmails(env).has(e)) return null;
   const s = (await res.json()) as Session;
   if (s.user?.email?.toLowerCase() !== e) return null;
   return sessionCookies(s);
 }
 
-export async function logout(req: Request, env: Env): Promise<void> {
-  const at = readCookie(req, AT);
-  if (at) await gotrue(env, "logout", {}, at).catch(() => {});
+/**
+ * Revokes the session in Supabase (all of this user's refresh tokens). When only the
+ * refresh token is left, it is exchanged first so it can be revoked too.
+ * Returns false when revocation could not be confirmed.
+ */
+export async function logout(req: Request, env: Env): Promise<boolean> {
+  let at = readCookie(req, AT);
+  const rt = readCookie(req, RT);
+  if (at) verified.delete(await tokenKey(at));
+  if (!at && rt) {
+    const r = await gotrue(env, "token?grant_type=refresh_token", { refresh_token: rt });
+    if (r.ok) at = ((await r.json()) as Session).access_token;
+    else return r.status >= 400 && r.status < 500; // token already invalid: nothing left to revoke
+  }
+  if (!at) return true;
+  const res = await gotrue(env, "logout?scope=global", {}, at);
+  return res.ok || res.status === 401 || res.status === 403;
 }

@@ -1,4 +1,4 @@
-import { authConfigured, clearCookies, currentUser, logout, startLogin, verifyLogin } from "./auth";
+import { authConfigured, clearCookies, currentUser, logout, normalizeEmail, passwordLogin } from "./auth";
 import { classify, rankStories } from "./classify";
 import { FEEDS } from "./feeds";
 import { normalizeDate, parseFeed } from "./rss";
@@ -36,28 +36,27 @@ async function readJson(req: Request): Promise<Record<string, unknown>> {
   }
 }
 
-async function handleAuth(req: Request, env: Env, path: string): Promise<Response> {
+async function handleAuth(req: Request, env: Env, ctx: ExecutionContext, path: string): Promise<Response> {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405, { Allow: "POST" });
   // CSRF: only same-origin pages may call the auth endpoints (cookies are SameSite=Strict too).
   if (req.headers.get("Origin") !== new URL(req.url).origin) return json({ error: "forbidden" }, 403);
   if (path === "/api/auth/logout") {
-    await logout(req, env);
-    return json({ ok: true }, 200, {}, clearCookies());
+    // Local cookies are cleared either way; the client is told if Supabase did not confirm.
+    const revoked = await logout(req, env);
+    return json({ ok: revoked }, revoked ? 200 : 502, {}, clearCookies());
   }
+  // Without a rate limiter the code could be brute-forced: refuse to log anyone in.
+  if (!env.AUTH_LIMITER) return json({ error: "login not configured" }, 503);
   const body = await readJson(req);
-  const email = typeof body.email === "string" ? body.email : "";
-  if (env.AUTH_LIMITER) {
-    const ip = req.headers.get("CF-Connecting-IP") ?? "?";
-    const { success } = await env.AUTH_LIMITER.limit({ key: `${path}:${ip}:${email.toLowerCase()}` });
-    if (!success) return json({ error: "too many attempts" }, 429);
+  const email = normalizeEmail(body.email);
+  const ip = req.headers.get("CF-Connecting-IP") ?? "?";
+  // Two budgets: per IP, and per account shared across all IPs.
+  for (const key of [`${path}:ip:${ip}`, `${path}:acct:${email}`]) {
+    if (!(await env.AUTH_LIMITER.limit({ key })).success) return json({ error: "too many attempts" }, 429);
   }
-  if (path === "/api/auth/start") {
-    await startLogin(env, email);
-    return json({ ok: true });
-  }
-  if (path === "/api/auth/verify") {
-    const cookies = await verifyLogin(env, email, typeof body.code === "string" ? body.code : "");
-    return cookies ? json({ ok: true }, 200, {}, cookies) : json({ error: "invalid code" }, 401);
+  if (path === "/api/auth/login") {
+    const cookies = await passwordLogin(env, email, typeof body.password === "string" ? body.password : "");
+    return cookies ? json({ ok: true }, 200, {}, cookies) : json({ error: "invalid credentials" }, 401);
   }
   return json({ error: "not found" }, 404);
 }
@@ -142,7 +141,7 @@ export default {
     try {
       // Fail closed: with no allowed emails configured nobody can sign in or read the API.
       if (!authConfigured(env) && env.PUBLIC_API !== "true") return json({ error: "login not configured" }, 503);
-      if (url.pathname.startsWith("/api/auth/")) return await handleAuth(req, env, url.pathname);
+      if (url.pathname.startsWith("/api/auth/")) return await handleAuth(req, env, ctx, url.pathname);
       if (req.method !== "GET") return json({ error: "method not allowed" }, 405, { Allow: "GET" });
 
       let setCookies: string[] = [];

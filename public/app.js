@@ -84,57 +84,42 @@ async function post(path, body) {
   return fetch(path, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
-let loginEmail = "";
-$("#email-form").addEventListener("submit", async (e) => {
+$("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const btn = e.target.querySelector("button");
-  loginEmail = $("#email").value.trim();
-  if (!loginEmail) return;
   btn.disabled = true;
-  const res = await post("/api/auth/start", { email: loginEmail }).catch(() => null);
-  btn.disabled = false;
-  if (!res || !res.ok) {
-    $("#login-msg").textContent = res && res.status === 429 ? "Demasiados intentos. Esperá un minuto." : "No se pudo enviar. Probá de nuevo.";
-    return;
-  }
-  $("#email-form").hidden = true;
-  $("#code-form").hidden = false;
-  $("#login-msg").textContent = `Si ${loginEmail} tiene acceso, te llegó un código. Revisá también spam.`;
-  $("#code").focus();
-});
-$("#code-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const btn = e.target.querySelector("button[type=submit]");
-  btn.disabled = true;
-  const res = await post("/api/auth/verify", { email: loginEmail, code: $("#code").value }).catch(() => null);
+  $("#login-msg").textContent = "";
+  const res = await post("/api/auth/login", { email: $("#email").value, password: $("#password").value }).catch(() => null);
   btn.disabled = false;
   if (res && res.ok) {
-    $("#code").value = "";
-    $("#login-msg").textContent = "";
+    $("#password").value = "";
     showLogin(false);
     load();
     return;
   }
-  $("#login-msg").textContent = res && res.status === 429 ? "Demasiados intentos. Esperá un minuto." : "Código incorrecto o vencido.";
-});
-$("#back").addEventListener("click", () => {
-  $("#code-form").hidden = true;
-  $("#email-form").hidden = false;
-  $("#login-msg").textContent = "";
+  $("#login-msg").textContent =
+    !res ? "Sin conexión. Probá de nuevo." : res.status === 429 ? "Demasiados intentos. Esperá un minuto." : "Email o contraseña incorrectos.";
 });
 $("#logout").addEventListener("click", async () => {
-  await post("/api/auth/logout", {}).catch(() => {});
+  const res = await post("/api/auth/logout", {}).catch(() => null);
+  if (!res || !res.ok) {
+    $("#updated").textContent = "No se pudo cerrar la sesión. Revisá la conexión y probá de nuevo.";
+    return;
+  }
+  loadCtl?.abort();
   state.data = null;
-  if (window.caches) caches.keys().then((ks) => ks.filter((k) => k.startsWith("api-")).forEach((k) => caches.delete(k)));
   $("#list").replaceChildren();
   showLogin(true);
 });
 
+let loadCtl = null;
 async function load() {
   const btn = $("#refresh");
   btn.classList.add("spin");
+  loadCtl?.abort();
+  const ctl = (loadCtl = new AbortController());
   try {
-    const res = await fetch(`/api/news?hours=${state.hours}`, { credentials: "same-origin" });
+    const res = await fetch(`/api/news?hours=${state.hours}`, { credentials: "same-origin", signal: ctl.signal });
     if (res.status === 401) { showLogin(true); return; }
     if (res.status === 503) throw new Error("La app todavía no tiene configurado el inicio de sesión.");
     showLogin(false);
@@ -142,7 +127,8 @@ async function load() {
     state.data = await res.json();
     $("#updated").textContent = `Actualizado ${new Date(state.data.generated_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
   } catch (err) {
-    $("#updated").textContent = state.data ? "Sin conexión: mostrando lo último" : "No se pudo cargar";
+    if (ctl.signal.aborted) return;
+    $("#updated").textContent = state.data ? "Sin conexión: mostrando lo último" : "Sin conexión";
     if (!state.data) {
       const p = document.createElement("p");
       p.className = "error";
