@@ -74,3 +74,11 @@ describe("rankStories", () => {
     expect(stories).toHaveLength(2);
   });
 });
+
+import { supabaseOrigin } from "../src/supabase";
+describe("supabaseOrigin", () => {
+  it("keeps only the project origin", () => {
+    for (const u of ["https://abc.supabase.co", "https://abc.supabase.co/", " https://abc.supabase.co/rest/v1/ ", "https://abc.supabase.co/auth/v1"])
+      expect(supabaseOrigin({ SUPABASE_URL: u } as never)).toBe("https://abc.supabase.co");
+  });
+});

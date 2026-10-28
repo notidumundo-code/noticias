@@ -1,3 +1,4 @@
+import { supabaseOrigin } from "./supabase";
 import type { Env } from "./types";
 
 // Login with Supabase Auth (email + password), proxied through the Worker.
@@ -34,7 +35,7 @@ export function authConfigured(env: Env): boolean {
 }
 
 function base(env: Env): string {
-  return `${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1`;
+  return `${supabaseOrigin(env)}/auth/v1`;
 }
 
 async function gotrue(env: Env, path: string, body: unknown, token?: string): Promise<Response> {
