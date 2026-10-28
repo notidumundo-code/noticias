@@ -98,7 +98,11 @@ $("#login-form").addEventListener("submit", async (e) => {
     return;
   }
   $("#login-msg").textContent =
-    !res ? "Sin conexión. Probá de nuevo." : res.status === 429 ? "Demasiados intentos. Esperá un minuto." : "Email o contraseña incorrectos.";
+    !res ? "Sin conexión. Probá de nuevo."
+      : res.status === 429 ? "Demasiados intentos. Esperá un minuto."
+      : res.status === 503 ? "La app todavía no tiene configurado el inicio de sesión."
+      : res.status >= 500 ? "Error del servidor al iniciar sesión. Avisá y probá más tarde."
+      : "Email o contraseña incorrectos.";
 });
 $("#logout").addEventListener("click", async () => {
   const res = await post("/api/auth/logout", {}).catch(() => null);

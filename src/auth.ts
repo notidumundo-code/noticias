@@ -93,7 +93,20 @@ export async function passwordLogin(env: Env, e: string, password: string): Prom
   if (!EMAIL_RE.test(e) || password.length < 1 || password.length > 200) return null;
   // Always ask Supabase (even for emails not on the list) so timing does not reveal the list.
   const res = await gotrue(env, "token?grant_type=password", { email: e, password });
-  if (!res.ok || !allowedEmails(env).has(e)) return null;
+  const allowed = allowedEmails(env).has(e);
+  if (!res.ok) {
+    const detail = (await res.text()).slice(0, 200);
+    // Logged server-side only (Workers logs); the client always gets the same answer.
+    console.warn("login failed", JSON.stringify({ status: res.status, allowed, detail }));
+    // 400 = bad credentials / unconfirmed email; anything else is a server-side problem
+    // (wrong key, Supabase down) and must not look like a wrong password.
+    if (res.status !== 400) throw new Error(`Supabase auth ${res.status}`);
+    return null;
+  }
+  if (!allowed) {
+    console.warn("login failed", JSON.stringify({ status: res.status, allowed }));
+    return null;
+  }
   const s = (await res.json()) as Session;
   if (s.user?.email?.toLowerCase() !== e) return null;
   return sessionCookies(s);
