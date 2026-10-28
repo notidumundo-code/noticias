@@ -33,10 +33,26 @@
     </nav>
   </header>
 
+  <section id="login" class="login" hidden>
+    <h2>Entrar</h2>
+    <p class="hint" id="login-hint">Te mandamos un código a tu email. Solo la primera vez en este dispositivo.</p>
+    <form id="email-form" novalidate>
+      <input id="email" type="email" autocomplete="email" inputmode="email" placeholder="tu@email.com" required>
+      <button type="submit">Enviar código</button>
+    </form>
+    <form id="code-form" hidden novalidate>
+      <input id="code" type="text" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*" maxlength="10" placeholder="Código del email" required>
+      <button type="submit">Entrar</button>
+      <button type="button" id="back" class="link">Usar otro email</button>
+    </form>
+    <p class="msg" id="login-msg" role="status"></p>
+  </section>
+
   <main id="list" aria-live="polite"></main>
 
   <footer class="foot">
     <span id="updated">Cargando…</span>
+    <button id="logout" class="link" hidden>Salir</button>
     <select id="hours" aria-label="Período">
       <option value="24">Últimas 24 h</option>
       <option value="48">48 h</option>

@@ -69,13 +69,75 @@ function render() {
   }
 }
 
+function showLogin(show) {
+  $("#login").hidden = !show;
+  $("#list").hidden = show;
+  document.querySelector(".tabs").hidden = show;
+  document.querySelector(".regions").hidden = show;
+  $("#refresh").hidden = show;
+  $("#hours").hidden = show;
+  $("#logout").hidden = show;
+  if (show) $("#updated").textContent = "";
+}
+
+async function post(path, body) {
+  return fetch(path, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
+let loginEmail = "";
+$("#email-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = e.target.querySelector("button");
+  loginEmail = $("#email").value.trim();
+  if (!loginEmail) return;
+  btn.disabled = true;
+  const res = await post("/api/auth/start", { email: loginEmail }).catch(() => null);
+  btn.disabled = false;
+  if (!res || !res.ok) {
+    $("#login-msg").textContent = res && res.status === 429 ? "Demasiados intentos. Esperá un minuto." : "No se pudo enviar. Probá de nuevo.";
+    return;
+  }
+  $("#email-form").hidden = true;
+  $("#code-form").hidden = false;
+  $("#login-msg").textContent = `Si ${loginEmail} tiene acceso, te llegó un código. Revisá también spam.`;
+  $("#code").focus();
+});
+$("#code-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = e.target.querySelector("button[type=submit]");
+  btn.disabled = true;
+  const res = await post("/api/auth/verify", { email: loginEmail, code: $("#code").value }).catch(() => null);
+  btn.disabled = false;
+  if (res && res.ok) {
+    $("#code").value = "";
+    $("#login-msg").textContent = "";
+    showLogin(false);
+    load();
+    return;
+  }
+  $("#login-msg").textContent = res && res.status === 429 ? "Demasiados intentos. Esperá un minuto." : "Código incorrecto o vencido.";
+});
+$("#back").addEventListener("click", () => {
+  $("#code-form").hidden = true;
+  $("#email-form").hidden = false;
+  $("#login-msg").textContent = "";
+});
+$("#logout").addEventListener("click", async () => {
+  await post("/api/auth/logout", {}).catch(() => {});
+  state.data = null;
+  if (window.caches) caches.keys().then((ks) => ks.filter((k) => k.startsWith("api-")).forEach((k) => caches.delete(k)));
+  $("#list").replaceChildren();
+  showLogin(true);
+});
+
 async function load() {
   const btn = $("#refresh");
   btn.classList.add("spin");
   try {
     const res = await fetch(`/api/news?hours=${state.hours}`, { credentials: "same-origin" });
-    if (res.status === 401 || res.redirected) { location.reload(); return; }
+    if (res.status === 401) { showLogin(true); return; }
     if (res.status === 503) throw new Error("La app todavía no tiene configurado el inicio de sesión.");
+    showLogin(false);
     if (!res.ok) throw new Error(String(res.status));
     state.data = await res.json();
     $("#updated").textContent = `Actualizado ${new Date(state.data.generated_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
@@ -108,8 +170,9 @@ $("#hours").addEventListener("change", (e) => { state.hours = e.target.value; sa
 $("#refresh").addEventListener("click", load);
 
 // Refresca al volver a la app y cada 5 minutos mientras está abierta.
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") load(); });
-setInterval(() => { if (document.visibilityState === "visible") load(); }, 5 * 60 * 1000);
+const loggedIn = () => $("#login").hidden;
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && loggedIn()) load(); });
+setInterval(() => { if (document.visibilityState === "visible" && loggedIn()) load(); }, 5 * 60 * 1000);
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 render();

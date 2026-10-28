@@ -35,11 +35,12 @@ export interface Env {
   SUPABASE_URL: string;
   /** Supabase secret (or legacy service_role) key. Never sent to the browser. */
   SUPABASE_SECRET_KEY: string;
-  /** Cloudflare Access settings. /api/* refuses every request until both are set. */
-  ACCESS_TEAM_DOMAIN?: string;
-  ACCESS_AUD?: string;
-  /** Explicit opt-out ("true") to serve the API without Access, e.g. for local dev. */
+  /** Comma-separated emails allowed to sign in. /api/* refuses everything until it is set. */
+  ALLOWED_EMAILS?: string;
+  /** Explicit opt-out ("true") to serve the news API without login, for local dev only. */
   PUBLIC_API?: string;
+  /** Workers rate limiting binding for login attempts (optional). */
+  AUTH_LIMITER?: { limit(opts: { key: string }): Promise<{ success: boolean }> };
   /** How many feeds each cron run refreshes (keeps CPU per run low). */
   FEEDS_PER_RUN?: string;
 }

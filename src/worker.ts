@@ -1,4 +1,4 @@
-import { accessEnabled, verifyAccess } from "./access";
+import { authConfigured, clearCookies, currentUser, logout, startLogin, verifyLogin } from "./auth";
 import { classify, rankStories } from "./classify";
 import { FEEDS } from "./feeds";
 import { normalizeDate, parseFeed } from "./rss";
@@ -18,8 +18,48 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
 };
 
-function json(body: unknown, status = 200, extra: Record<string, string> = {}): Response {
-  return new Response(JSON.stringify(body), { status, headers: { ...SECURITY_HEADERS, ...extra } });
+function json(body: unknown, status = 200, extra: Record<string, string> = {}, cookies: string[] = []): Response {
+  const headers = new Headers({ ...SECURITY_HEADERS, "Cache-Control": "private, no-store", ...extra });
+  for (const c of cookies) headers.append("Set-Cookie", c);
+  return new Response(JSON.stringify(body), { status, headers });
+}
+
+async function readJson(req: Request): Promise<Record<string, unknown>> {
+  if (!(req.headers.get("Content-Type") ?? "").includes("application/json")) return {};
+  const text = await req.text();
+  if (text.length > 2000) return {};
+  try {
+    const v = JSON.parse(text);
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+async function handleAuth(req: Request, env: Env, path: string): Promise<Response> {
+  if (req.method !== "POST") return json({ error: "method not allowed" }, 405, { Allow: "POST" });
+  // CSRF: only same-origin pages may call the auth endpoints (cookies are SameSite=Strict too).
+  if (req.headers.get("Origin") !== new URL(req.url).origin) return json({ error: "forbidden" }, 403);
+  if (path === "/api/auth/logout") {
+    await logout(req, env);
+    return json({ ok: true }, 200, {}, clearCookies());
+  }
+  const body = await readJson(req);
+  const email = typeof body.email === "string" ? body.email : "";
+  if (env.AUTH_LIMITER) {
+    const ip = req.headers.get("CF-Connecting-IP") ?? "?";
+    const { success } = await env.AUTH_LIMITER.limit({ key: `${path}:${ip}:${email.toLowerCase()}` });
+    if (!success) return json({ error: "too many attempts" }, 429);
+  }
+  if (path === "/api/auth/start") {
+    await startLogin(env, email);
+    return json({ ok: true });
+  }
+  if (path === "/api/auth/verify") {
+    const cookies = await verifyLogin(env, email, typeof body.code === "string" ? body.code : "");
+    return cookies ? json({ ok: true }, 200, {}, cookies) : json({ error: "invalid code" }, 401);
+  }
+  return json({ error: "not found" }, 404);
 }
 
 async function fetchFeed(feed: Feed, now: Date): Promise<Article[]> {
@@ -98,14 +138,21 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
-    if (req.method !== "GET") return json({ error: "method not allowed" }, 405, { Allow: "GET" });
-    // Fail closed: without Access configured the API answers nobody, unless PUBLIC_API is set on purpose.
-    if (env.PUBLIC_API !== "true") {
-      if (!accessEnabled(env)) return json({ error: "access not configured" }, 503);
-      if (!(await verifyAccess(req, env))) return json({ error: "unauthorized" }, 401);
-    }
 
     try {
+      // Fail closed: with no allowed emails configured nobody can sign in or read the API.
+      if (!authConfigured(env) && env.PUBLIC_API !== "true") return json({ error: "login not configured" }, 503);
+      if (url.pathname.startsWith("/api/auth/")) return await handleAuth(req, env, url.pathname);
+      if (req.method !== "GET") return json({ error: "method not allowed" }, 405, { Allow: "GET" });
+
+      let setCookies: string[] = [];
+      if (env.PUBLIC_API !== "true") {
+        const user = await currentUser(req, env);
+        if (!user) return json({ error: "unauthorized" }, 401);
+        setCookies = user.setCookies;
+      }
+      if (url.pathname === "/api/me") return json({ ok: true }, 200, {}, setCookies);
+
       if (url.pathname === "/api/news") {
         const hours = [24, 48, 72, 168].includes(Number(url.searchParams.get("hours"))) ? Number(url.searchParams.get("hours")) : 24;
         // Cache key carries no credentials: the payload is identical for every authorized viewer.
@@ -116,11 +163,13 @@ export default {
           // The edge copy carries s-maxage; browsers and intermediaries must never store it.
           const res = new Response(hit.body, hit);
           res.headers.set("Cache-Control", "private, no-store");
+          res.headers.delete("Set-Cookie");
+          for (const c of setCookies) res.headers.append("Set-Cookie", c);
           return res;
         }
-        const res = json(await newsPayload(env, hours), 200, { "Cache-Control": "private, no-store" });
-        const toCache = new Response(res.clone().body, res);
-        toCache.headers.set("Cache-Control", `s-maxage=${API_CACHE_SECONDS}`);
+        const payload = await newsPayload(env, hours);
+        const toCache = json(payload, 200, { "Cache-Control": `s-maxage=${API_CACHE_SECONDS}` });
+        const res = json(payload, 200, {}, setCookies);
         ctx.waitUntil(cache.put(cacheKey, toCache));
         return res;
       }
@@ -128,7 +177,7 @@ export default {
         const status = new Map((await getFeedStatus(env)).map((s) => [s.feed_id, s]));
         return json({
           feeds: FEEDS.map((f) => ({ id: f.id, name: f.name, category: f.category, region: f.region, ...(status.get(f.id) ?? {}) })),
-        }, 200, { "Cache-Control": "no-store" });
+        }, 200, {}, setCookies);
       }
       return json({ error: "not found" }, 404);
     } catch (err) {

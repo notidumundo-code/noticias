@@ -1,5 +1,6 @@
 # Copiar a .dev.vars para `npm run dev` (este archivo real nunca se sube a git)
 SUPABASE_URL=https://TU-PROYECTO.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_...
-# Solo local: sirve la API sin Cloudflare Access. Nunca en producción.
+ALLOWED_EMAILS=tu@email.com
+# Solo local: sirve la API sin login. Nunca en producción.
 PUBLIC_API=true

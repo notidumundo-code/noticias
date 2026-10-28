@@ -20,13 +20,16 @@ PWA personal (web + pantalla de inicio del iPhone) con las noticias **económica
    - `SUPABASE_SECRET_KEY`
 3. Los *Cron Triggers* (`*/5 * * * *`) se crean desde `wrangler.jsonc`.
 
-### 3. Login (Cloudflare Access) — obligatorio
+### 3. Login (Supabase Auth, gratis)
 Hasta completar este paso la API responde `503` a todos: la app no muestra noticias sin login configurado.
+1. Supabase → **Authentication → Users → Add user → Create new user**: tu email, cualquier contraseña, marcá *Auto Confirm User*.
+2. **Authentication → Sign In / Providers**: desactivá *Allow new users to sign up* (nadie más puede crearse cuenta).
+3. **Authentication → Emails → Templates → Magic Link**: agregá al cuerpo `Tu código: {{ .Token }}` (la app pide el código, no el link, porque en el iPhone la app instalada no comparte sesión con Safari).
+4. Cloudflare → Worker → **Settings → Variables and Secrets**: Secret `ALLOWED_EMAILS` = tu email (varios separados por coma).
+5. Si activaste Cloudflare Access en la pestaña *Access* del Worker, desactivalo.
 
-1. **Zero Trust → Access → Applications → Add → Self-hosted**: dominio del Worker (`noticias-globales.<tu-subdominio>.workers.dev` o tu dominio). Política: *Allow* → *Emails* → tu email.
-2. Copiá el **Application Audience (AUD) Tag** y tu *team domain* (`<equipo>.cloudflareaccess.com`).
-3. Cargalos como variables del Worker: `ACCESS_TEAM_DOMAIN` y `ACCESS_AUD`. Desde ahí la API rechaza cualquier pedido sin login, incluso si alguien saltea Access.
-4. (Solo desarrollo local) `PUBLIC_API=true` en `.dev.vars` desactiva el chequeo. No lo uses en producción.
+La sesión queda guardada en cookies `HttpOnly` y se renueva sola: el código se pide una vez por dispositivo. Los intentos de login están limitados a 5 por minuto.
+(Solo desarrollo local) `PUBLIC_API=true` en `.dev.vars` desactiva el login. No lo uses en producción.
 
 ### 4. Comprobar
 - `https://<tu-url>/api/status` muestra cada fuente con su último error y cantidad de notas (las primeras ~25 minutos se van llenando).
@@ -42,4 +45,4 @@ npm test && npm run typecheck
 `wrangler dev --test-scheduled` habilita el endpoint `/__scheduled` para probar la ingesta.
 
 ## Seguridad
-Resumen en `vault/03 Seguridad/Seguridad.md`: Cloudflare Access + verificación de JWT en la API, RLS sin políticas en Supabase, CSP estricta sin scripts externos, secretos solo en Cloudflare.
+Resumen en `vault/03 Seguridad/Seguridad.md`: login con Supabase Auth (email + código) con cookies HttpOnly, RLS sin políticas en Supabase, CSP estricta sin scripts externos, secretos solo en Cloudflare.
