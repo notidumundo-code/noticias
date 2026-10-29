@@ -185,6 +185,8 @@ async function health(env: Env, ctx: ExecutionContext, url: URL): Promise<Respon
     feeds_failing: status.filter((s) => s.last_error).length,
     feeds_total: FEEDS.length,
     articles_24h: recent.length,
+    // Feed ids and errors only; the feed list is public in the repo anyway.
+    failing: status.filter((s) => s.last_error).map((s) => ({ id: s.feed_id, error: s.last_error })),
   };
   const res = json(body, 200, { "Cache-Control": "s-maxage=60" });
   ctx.waitUntil(caches.default.put(cacheKey, res.clone()));
