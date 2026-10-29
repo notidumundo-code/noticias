@@ -160,7 +160,7 @@ async function newsPayload(env: Env, hours: number) {
   const buckets = {} as Record<Category, Record<Region, ReturnType<typeof rankStories>>>;
   for (const c of CATEGORIES) {
     buckets[c] = {} as Record<Region, ReturnType<typeof rankStories>>;
-    for (const r of REGIONS) buckets[c][r] = rankStories(rows.filter((a) => a.category === c && a.region === r), now);
+    for (const r of REGIONS) buckets[c][r] = rankStories(rows.filter((a) => a.category === c && a.region === r), now, hours <= 1 ? 50 : 25);
   }
   return { generated_at: new Date(now).toISOString(), hours, total: rows.length, buckets };
 }
@@ -215,7 +215,7 @@ export default {
       if (url.pathname === "/api/me") return json({ ok: true }, 200, {}, setCookies);
 
       if (url.pathname === "/api/news") {
-        const hours = [24, 48, 72, 168].includes(Number(url.searchParams.get("hours"))) ? Number(url.searchParams.get("hours")) : 24;
+        const hours = [1, 24, 48, 72, 168].includes(Number(url.searchParams.get("hours"))) ? Number(url.searchParams.get("hours")) : 24;
         // Cache key carries no credentials: the payload is identical for every authorized viewer.
         const cacheKey = new Request(`${url.origin}/api/news?hours=${hours}`);
         const cache = caches.default;
