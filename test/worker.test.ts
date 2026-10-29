@@ -126,3 +126,21 @@ describe("server-side auth errors", () => {
     expect(await res.json()).toEqual({ error: "upstream error", supabase_status: 401, supabase_error: "Invalid API key" });
   });
 });
+
+import { ingest } from "../src/worker";
+describe("ingest", () => {
+  it("claims feeds before fetching and stores parsed articles", async () => {
+    const calls: { url: string; method: string; body?: string }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
+      calls.push({ url, method: init.method ?? "GET", body: init.body as string | undefined });
+      if (url.includes("/rest/v1/feed_status?select")) return Response.json([]);
+      if (url.includes("/rest/v1/")) return new Response(null, { status: 201 });
+      return new Response(`<rss><channel><item><title>El dólar sube por la inflación</title><link>https://x.test/${encodeURIComponent(url)}</link><pubDate>Tue, 28 Oct 2026 10:00:00 GMT</pubDate></item></channel></rss>`);
+    }));
+    const res = await ingest(env({ FEEDS_PER_RUN: "2" }), new Date("2026-10-28T12:00:00Z"));
+    expect(res.filter((r) => r.ok)).toHaveLength(2);
+    const writes = calls.filter((c) => c.method === "POST");
+    expect(writes[0].url).toContain("feed_status"); // claim first
+    expect(writes.some((c) => c.url.includes("articles") && JSON.parse(c.body!).length === 2)).toBe(true);
+  });
+});

@@ -31,11 +31,27 @@ export function cleanText(s: string): string {
   return t.replace(/\s+/g, " ").trim();
 }
 
+// indexOf-based lookup: much cheaper than building a RegExp per tag and item.
 function tag(block: string, names: string[]): string | null {
+  const lower = block.toLowerCase();
   for (const name of names) {
-    const re = new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, "i");
-    const m = block.match(re);
-    if (m) return m[1];
+    const n = name.toLowerCase();
+    let from = 0;
+    while (true) {
+      const start = lower.indexOf(`<${n}`, from);
+      if (start < 0) break;
+      const after = lower[start + n.length + 1];
+      if (after !== ">" && after !== " " && after !== "\t" && after !== "\n" && after !== "\r") {
+        from = start + 1; // e.g. <link> vs <linkage>, or <content> vs <content:encoded>
+        continue;
+      }
+      const open = lower.indexOf(">", start);
+      if (open < 0) break;
+      if (lower[open - 1] === "/") { from = open; continue; } // self-closing, no text
+      const close = lower.indexOf(`</${n}>`, open);
+      if (close < 0) break;
+      return block.slice(open + 1, close);
+    }
   }
   return null;
 }
@@ -69,15 +85,26 @@ export function safeUrl(raw: string | null): string | null {
   }
 }
 
-export function parseFeed(xml: string, maxItems = 40): RawItem[] {
-  const blocks = xml.match(/<(item|entry)\b[\s\S]*?<\/\1>/gi) ?? [];
+/** Cuts the first `max` <item> (RSS) or <entry> (Atom) blocks out of the feed. */
+function blocks(xml: string, max: number): string[] {
+  const name = /<item[\s>]/i.test(xml) ? "item" : "entry";
+  const re = new RegExp(`<${name}[\\s>][\\s\\S]*?</${name}>`, "gi");
+  const out: string[] = [];
+  for (let m = re.exec(xml); m && out.length < max; m = re.exec(xml)) out.push(m[0]);
+  return out;
+}
+
+export function parseFeed(xml: string, maxItems = 30): RawItem[] {
   const out: RawItem[] = [];
-  for (const b of blocks.slice(0, maxItems)) {
+  for (const raw of blocks(xml, maxItems)) {
+    // Full article bodies are never used and are the bulk of large feeds.
+    const b = raw.replace(/<content:encoded[\s\S]*?<\/content:encoded>/gi, "");
     const title = cleanText(tag(b, ["title"]) ?? "");
     const rawLink = tag(b, ["link"]);
     const link = safeUrl(rawLink && rawLink.trim() ? rawLink : atomLink(b) ?? tag(b, ["guid", "id"]));
     if (!title || !link) continue;
-    const summary = cleanText(tag(b, ["description", "summary", "content:encoded", "content"]) ?? "").slice(0, 400);
+    // Only the first ~400 chars are kept, so cleaning more than this is wasted CPU.
+    const summary = cleanText((tag(b, ["description", "summary", "content"]) ?? "").slice(0, 1500)).slice(0, 400);
     const published = tag(b, ["pubDate", "published", "updated", "dc:date"]);
     out.push({ title: title.slice(0, 300), link, summary, published: published ? cleanText(published) : null });
   }

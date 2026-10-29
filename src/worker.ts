@@ -63,6 +63,32 @@ async function handleAuth(req: Request, env: Env, ctx: ExecutionContext, path: s
   return json({ error: "not found" }, 404);
 }
 
+const MAX_FEED_BYTES = 400_000;
+
+/** Reads at most `max` bytes: newest items come first, and decoding huge feeds wastes CPU. */
+async function readCapped(res: Response, max: number): Promise<string> {
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (size < max) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    size += value.byteLength;
+  }
+  await reader.cancel().catch(() => {});
+  const buf = new Uint8Array(Math.min(size, max));
+  let off = 0;
+  for (const c of chunks) {
+    const part = c.subarray(0, buf.length - off);
+    buf.set(part, off);
+    off += part.length;
+    if (off >= buf.length) break;
+  }
+  return new TextDecoder().decode(buf);
+}
+
 async function fetchFeed(feed: Feed, now: Date): Promise<Article[]> {
   const res = await fetch(feed.url, {
     headers: { "User-Agent": "NoticiasGlobales/1.0 (+lector RSS personal)", Accept: "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5" },
@@ -70,7 +96,7 @@ async function fetchFeed(feed: Feed, now: Date): Promise<Article[]> {
     cf: { cacheTtl: 60 },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const xml = (await res.text()).slice(0, 1_500_000);
+  const xml = await readCapped(res, MAX_FEED_BYTES);
   const out: Article[] = [];
   for (const item of parseFeed(xml)) {
     const c = classify(item, feed);
@@ -92,11 +118,15 @@ async function fetchFeed(feed: Feed, now: Date): Promise<Article[]> {
 
 /** Refreshes the feeds that were fetched longest ago; a few per run keeps CPU low. */
 export async function ingest(env: Env, now = new Date()): Promise<{ feed: string; ok: boolean; items: number }[]> {
-  const perRun = Math.max(1, Number(env.FEEDS_PER_RUN ?? 6) || 6);
+  const perRun = Math.max(1, Number(env.FEEDS_PER_RUN ?? 2) || 2);
   const status = new Map((await getFeedStatus(env)).map((s) => [s.feed_id, s]));
   const due = [...FEEDS]
     .sort((a, b) => (status.get(a.id)?.last_fetched_at ?? "").localeCompare(status.get(b.id)?.last_fetched_at ?? ""))
     .slice(0, perRun);
+
+  // Claim the feeds first: if this run is cut short (CPU limit), the next run moves on
+  // to other feeds instead of retrying the same ones forever.
+  await upsertFeedStatus(env, due.map((f) => ({ feed_id: f.id, last_fetched_at: now.toISOString() })));
 
   const results = await Promise.allSettled(due.map((f) => fetchFeed(f, now)));
   const articles: Article[] = [];
@@ -135,6 +165,25 @@ async function newsPayload(env: Env, hours: number) {
   return { generated_at: new Date(now).toISOString(), hours, total: rows.length, buckets };
 }
 
+async function health(env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
+  const cacheKey = new Request(`${url.origin}/api/health`);
+  const hit = await caches.default.match(cacheKey);
+  if (hit) return new Response(hit.body, hit);
+  const status = await getFeedStatus(env);
+  const recent = await recentArticles(env, new Date(Date.now() - 24 * 3_600_000).toISOString());
+  const lastRun = status.map((s) => s.last_fetched_at ?? "").sort().pop() || null;
+  const body = {
+    last_run_at: lastRun,
+    feeds_ok: status.filter((s) => s.last_ok_at && !s.last_error).length,
+    feeds_failing: status.filter((s) => s.last_error).length,
+    feeds_total: FEEDS.length,
+    articles_24h: recent.length,
+  };
+  const res = json(body, 200, { "Cache-Control": "s-maxage=60" });
+  ctx.waitUntil(caches.default.put(cacheKey, res.clone()));
+  return res;
+}
+
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
@@ -144,6 +193,8 @@ export default {
       // Fail closed: with no allowed emails configured nobody can sign in or read the API.
       if (!authConfigured(env) && env.PUBLIC_API !== "true") return json({ error: "login not configured" }, 503);
       if (url.pathname.startsWith("/api/auth/")) return await handleAuth(req, env, ctx, url.pathname);
+      // Public, counts only (no titles, no sources): lets the owner check ingestion without logging in.
+      if (url.pathname === "/api/health" && req.method === "GET") return await health(env, ctx, url);
       if (req.method !== "GET") return json({ error: "method not allowed" }, 405, { Allow: "GET" });
 
       let setCookies: string[] = [];

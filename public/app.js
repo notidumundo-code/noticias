@@ -77,6 +77,7 @@ function showLogin(show) {
   $("#refresh").hidden = show;
   $("#hours").hidden = show;
   $("#logout").hidden = show;
+  $("#sources").hidden = show;
   if (show) $("#updated").textContent = "";
 }
 
@@ -114,6 +115,34 @@ $("#logout").addEventListener("click", async () => {
   state.data = null;
   $("#list").replaceChildren();
   showLogin(true);
+});
+
+const REGION_LABEL = { argentina: "Argentina", region: "Región", mundo: "Mundo" };
+$("#sources").addEventListener("click", async () => {
+  const list = $("#list");
+  const res = await fetch("/api/status", { credentials: "same-origin" }).catch(() => null);
+  if (!res || !res.ok) { $("#updated").textContent = "No se pudo cargar el estado de las fuentes"; return; }
+  const { feeds } = await res.json();
+  const ok = feeds.filter((f) => f.last_ok_at && !f.last_error).length;
+  const head = document.createElement("p");
+  head.className = "empty";
+  head.textContent = `${ok} de ${feeds.length} fuentes funcionando. Tocá una pestaña para volver a las noticias.`;
+  list.replaceChildren(head);
+  for (const f of feeds) {
+    const card = document.createElement("article");
+    card.className = "story";
+    const t = document.createElement("div");
+    t.className = "headline";
+    t.textContent = `${f.last_error ? "⚠️" : f.last_ok_at ? "✅" : "⏳"} ${f.name} · ${REGION_LABEL[f.region] ?? f.region}`;
+    const m = document.createElement("div");
+    m.className = "meta";
+    m.textContent = f.last_error
+      ? `Error: ${f.last_error}`
+      : f.last_ok_at ? `Leída ${timeAgo(f.last_ok_at)} · ${f.items_last ?? 0} notas` : "Todavía no se leyó";
+    card.append(t, m);
+    list.append(card);
+  }
+  window.scrollTo({ top: 0 });
 });
 
 let loadCtl = null;
