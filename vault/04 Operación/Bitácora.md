@@ -13,3 +13,4 @@
 ## 2026-10-29
 - No entraban noticias: (1) cada corrida superaba el límite de CPU y repetía las mismas fuentes; (2) la clave cargada era la pública de Supabase. Ambas cosas corregidas.
 - Frecuencia elegida: cada medio se relee cada ~20 minutos (cron cada 2 min, 3 fuentes por corrida).
+- Revisión de fuentes: 4 links de RSS actualizados, Infobae/Perfil/BBC AL descartados. Quedan 24. Filtro "Última hora" agregado.

@@ -172,7 +172,9 @@ async function health(env: Env, ctx: ExecutionContext, url: URL): Promise<Respon
   let status: Awaited<ReturnType<typeof getFeedStatus>>;
   let recent: Awaited<ReturnType<typeof recentArticles>>;
   try {
-    status = await getFeedStatus(env);
+    // Rows of feeds removed from FEEDS stay in the table; ignore them.
+    const ids = new Set(FEEDS.map((f) => f.id));
+    status = (await getFeedStatus(env)).filter((s) => ids.has(s.feed_id));
     recent = await recentArticles(env, new Date(Date.now() - 24 * 3_600_000).toISOString());
   } catch (err) {
     // Supabase's error text (e.g. permission denied) is safe to show and is what the owner needs.

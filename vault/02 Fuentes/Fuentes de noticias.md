@@ -1,12 +1,14 @@
 # Fuentes de noticias
 
-La lista vive en `src/feeds.ts`. Agregar un medio = agregar una línea con su RSS, categoría (`economia`, `politica` o `mixto`) y región.
+La lista vive en `src/feeds.ts`. Agregar un medio = agregar una línea con su RSS, categoría (`economia`, `politica` o `mixto`) y región. El estado de cada una se ve en el botón **Fuentes** de la app.
 
-| Bucket | Verificadas (oct 2026) | Sin verificar |
-|---|---|---|
-| Argentina · Economía | Ámbito, Ámbito Finanzas, Infobae, La Nación, iProfesional | El Cronista, Clarín |
-| Argentina · Política | Ámbito, Infobae, La Nación, Perfil | Clarín, Página/12 |
-| Región | El País América, Bloomberg Línea, Infobae América | BBC Mundo AL, MercoPress, DW, France 24 |
-| Mundo | La Nación El Mundo, Al Jazeera | BBC, The Guardian, El País, CNBC |
+Revisadas en producción el 2026-10-29 (24 fuentes):
 
-"Sin verificar" = no se pudo probar desde el entorno de desarrollo. Una vez desplegado, `/api/status` muestra cuáles responden. Una fuente caída no rompe nada.
+| Bucket | Fuentes |
+|---|---|
+| Argentina · Economía | Ámbito, Ámbito Finanzas, La Nación, iProfesional, El Cronista (mixto), Clarín |
+| Argentina · Política | Ámbito, La Nación, Clarín, Página/12 (mixto) |
+| Región | El País América, Bloomberg Línea, MercoPress, France 24 |
+| Mundo | La Nación El Mundo, DW, Al Jazeera, BBC Mundo, BBC Business, The Guardian (x2), El País (x2), CNBC |
+
+Descartadas: Infobae (bloquea a Cloudflare con 403), Perfil Política (sin notas desde junio 2026), BBC Mundo América Latina (duplicaba BBC Mundo), DW América Latina (vacío; reemplazado por DW general).
