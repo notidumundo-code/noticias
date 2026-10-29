@@ -42,7 +42,7 @@ async function gotrue(env: Env, path: string, body: unknown, token?: string): Pr
   return fetch(`${base(env)}/${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: {
-      apikey: env.SUPABASE_SECRET_KEY,
+      apikey: env.SUPABASE_SECRET_KEY.trim(),
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },

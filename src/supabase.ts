@@ -1,7 +1,8 @@
 import type { Article, Env } from "./types";
 
-// Minimal PostgREST client. The secret key travels only in the `apikey` header,
-// which works for both new `sb_secret_…` keys and the legacy service_role JWT.
+// Minimal PostgREST client. New `sb_secret_…` keys go only in `apikey` (the gateway maps
+// them to service_role). Legacy service_role keys are JWTs and must also be sent as
+// `Authorization: Bearer`, otherwise PostgREST runs the request as `anon`.
 
 /**
  * Project origin only: tolerates a URL pasted with a path like /rest/v1 or a trailing slash.
@@ -10,10 +11,15 @@ export function supabaseOrigin(env: Env): string {
   return new URL(env.SUPABASE_URL.trim()).origin;
 }
 
+export function keyHeaders(env: Env): Record<string, string> {
+  const key = env.SUPABASE_SECRET_KEY.trim();
+  return key.startsWith("eyJ") ? { apikey: key, Authorization: `Bearer ${key}` } : { apikey: key };
+}
+
 async function rest(env: Env, path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(`${supabaseOrigin(env)}/rest/v1/${path}`, {
     ...init,
-    headers: { apikey: env.SUPABASE_SECRET_KEY, "Content-Type": "application/json", ...init.headers },
+    headers: { ...keyHeaders(env), "Content-Type": "application/json", ...init.headers },
   });
   if (!res.ok) throw new Error(`Supabase ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return res;

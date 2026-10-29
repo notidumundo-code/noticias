@@ -82,3 +82,11 @@ describe("supabaseOrigin", () => {
       expect(supabaseOrigin({ SUPABASE_URL: u } as never)).toBe("https://abc.supabase.co");
   });
 });
+
+import { keyHeaders } from "../src/supabase";
+describe("keyHeaders", () => {
+  it("sends legacy JWT keys as Bearer too, new secret keys only as apikey", () => {
+    expect(keyHeaders({ SUPABASE_SECRET_KEY: "eyJabc.def.ghi " } as never)).toEqual({ apikey: "eyJabc.def.ghi", Authorization: "Bearer eyJabc.def.ghi" });
+    expect(keyHeaders({ SUPABASE_SECRET_KEY: "sb_secret_x" } as never)).toEqual({ apikey: "sb_secret_x" });
+  });
+});
