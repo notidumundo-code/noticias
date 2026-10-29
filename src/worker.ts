@@ -169,8 +169,15 @@ async function health(env: Env, ctx: ExecutionContext, url: URL): Promise<Respon
   const cacheKey = new Request(`${url.origin}/api/health`);
   const hit = await caches.default.match(cacheKey);
   if (hit) return new Response(hit.body, hit);
-  const status = await getFeedStatus(env);
-  const recent = await recentArticles(env, new Date(Date.now() - 24 * 3_600_000).toISOString());
+  let status: Awaited<ReturnType<typeof getFeedStatus>>;
+  let recent: Awaited<ReturnType<typeof recentArticles>>;
+  try {
+    status = await getFeedStatus(env);
+    recent = await recentArticles(env, new Date(Date.now() - 24 * 3_600_000).toISOString());
+  } catch (err) {
+    // Supabase's error text (e.g. permission denied) is safe to show and is what the owner needs.
+    return json({ ok: false, database_error: String((err as Error).message).slice(0, 200) }, 502);
+  }
   const lastRun = status.map((s) => s.last_fetched_at ?? "").sort().pop() || null;
   const body = {
     last_run_at: lastRun,
