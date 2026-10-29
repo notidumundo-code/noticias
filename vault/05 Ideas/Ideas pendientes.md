@@ -5,3 +5,4 @@
 - [ ] Notificaciones push para noticias que cubren 4+ medios.
 - [ ] Marcar como leída / guardar para después.
 - [ ] Más fuentes regionales (Brasil, Chile, México) y agencias.
+- [ ] Recuperar Infobae (bloquea a Cloudflare) con otra vía o sumar otro medio de política argentina.
